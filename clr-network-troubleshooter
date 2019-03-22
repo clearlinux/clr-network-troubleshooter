@@ -1,0 +1,274 @@
+#!/usr/bin/env perl
+
+# Copyright 2019 Intel Corporation
+# See COPYING for terms.
+#
+# Brett T. Warden
+#
+
+use strict;
+use warnings;
+
+my @actions;
+my @errors;
+my %failures;
+my $NETWORK_DATE;
+my $RELEASE_DATE;
+my $LOCAL_DATE;
+
+# Run the tests
+
+if (check_download_clearlinux_org()) {
+	print "Connectivity seems ok\n";
+	exit;
+}
+else {
+	print "Troubleshooting\n";
+	check_gateway();
+	check_proxies_reachable();
+	check_for_captive_portal();
+
+	if ($failures{https} && !$failures{http}) {
+		check_system_time();
+	}
+}
+
+# Report test results
+
+print "\n\nSUMMARY\n";
+
+if (@actions) {
+	print join("\n", "Actions to take:", @actions, "");
+	exit 1;
+}
+if (@errors) {
+	print "\nNETWORK TEST FAILED\n";
+	exit 1;
+}
+else
+{
+	print "\nNETWORK TEST PASSED\n";
+}
+
+exit;
+
+sub add_action {
+	foreach my $message (@_) {
+		push(@actions, $message);
+		warn "==> $message\n";
+	}
+}
+
+sub log_error {
+	foreach my $message (@_) {
+		push(@errors, $message);
+		warn "--> $message\n";
+	}
+}
+
+sub log_pass {
+	foreach my $message (@_) {
+		print "  > $message\n";
+	}
+}
+
+sub check_download_clearlinux_org {
+	my $failed;
+	my $baseurl = 'download.clearlinux.org/latest';
+
+	foreach my $proto (qw(http https)) {
+		my $url = join('://', lc $proto, $baseurl);
+
+		# Using system 'curl' binary
+		my $command = "/usr/bin/curl -s -i ${url}";
+		print "Testing $proto site: [${command}]\n";
+		my $response = `$command`;
+		my $rc = $? >> 8;
+		if ($rc) {
+			log_error("FAILED: ".uc($proto)." [$command] returned $rc");
+			warn "$response\n";
+			$failed++;
+			$failures{$proto}++;
+		}
+		elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
+			log_pass("Got release $1");
+
+			# Grab the date from here to check
+			if (!$NETWORK_DATE && (my ($http_date) = ($response =~ m/^date: (.*)/mi))) {
+				set_network_date(`/usr/bin/date -d "${http_date}" +%s`);
+			}
+		}
+		else {
+			log_error("FAILED: expected a release number; got something else [$command]");
+			warn "$response\n";
+			$failed++;
+			$failures{$proto}++;
+		}
+	}
+	if (!$failed) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+sub check_gateway {
+	my $hostname = '_gateway';
+	print "Attempting to reach your default router\n";
+	my $command = "/usr/bin/ping -q -c 1 -w 5 $hostname";
+	my $response = `$command`;
+	my $rc = $? >> 8;
+	if (!$rc) {
+		log_pass("default router is reachable (as $hostname)");
+	}
+	elsif ($rc == 2) {
+		log_error("FAILED: NS lookup failed for $hostname");
+		add_action("check physical network connectivity, IP address settings (static or DHCP), etc.");
+	}
+	elsif ($rc == 1) {
+		log_error("POSSIBLY FAILED: no response from $hostname to pings");
+		add_action("This may be acceptable, but you should still check physical network connectivity");
+	}
+	else {
+		log_error("FAILED: [$command] failed for an unexpected reason");
+		warn "$response\n";
+	}
+}
+
+sub check_for_captive_portal {
+	my $failed;
+	# curl -i http://clients1.google.com/generate_204
+	# HTTP/1.1 204 No Content
+	# Content-Length: 0
+	# Date: Mon, 18 Mar 2019 21:49:08 GMT
+	# Via: 1.1 jfdmzpr10
+	# Connection: Keep-Alive
+	#
+	my $url = 'http://clients1.google.com/generate_204';
+	my $command = "/usr/bin/curl -s -i ${url}";
+	print "Checking for a captive portal [$command]\n";
+	my $response = `$command`;
+	if ($?) {
+		log_error("FAILED: $command");
+		$failed++;
+	}
+	else {
+		if (my ($method, $status) = ($response =~ m|^(HTTP/[\d\.]+) (\d+)|)) {
+			if ($status eq '204') {
+				log_pass("No captive portal detected");
+			}
+			elsif ($status =~ /^3\d\d$/) {
+				add_action('Launch a web browser and check for a captive portal (redirected)');
+			}
+			elsif ($status =~ /^2\d\d/) {
+				add_action('Launch a web browser and check for a captive portal (page replaced)');
+			}
+			else {
+				log_error("FAILED: [$command] failed with HTTP status $status");
+			}
+		}
+		else {
+			log_error("FAILED: [$command] got unknown response");
+			warn "$response\n";
+		}
+	}
+}
+
+sub check_proxies_reachable {
+	foreach my $proxy_var (qw(http_proxy https_proxy)) {
+		if (my $proxy = $ENV{${proxy_var}}) {
+			my $failed;
+			my $command = "/usr/bin/curl -s --proxy '' ${proxy}";
+			print "Testing $proxy_var=$proxy [$command]\n";
+			my $response = `$command`;
+			if ($?) {
+				log_error("FAILED: $command");
+				$failed++;
+
+				# Check whether https was the problem
+				if ($proxy =~ m/^https:/) {
+					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
+					$proxy =~ s/^(http)s(:)/$1$2/;
+					$command = "/usr/bin/curl -s --proxy '' ${proxy}";
+					my $response = `$command`;
+					if (!$?) {
+						add_action("Set $proxy_var to $proxy (replace https)");
+					}
+				}
+			}
+			if (!$failed) {
+				log_pass("proxies are reachable");
+			}
+		}
+	}
+}
+
+sub set_network_date {
+	my $date = shift;
+	if ($date && $date =~ m/^\d+$/) {
+		$NETWORK_DATE = $date;
+
+		# Capture local time at the same time so we can establish the difference
+		$LOCAL_DATE = time;
+	}
+}
+
+sub get_release_date {
+	my $status;
+	open(my $vstamp, "<", "/usr/share/clear/versionstamp")
+		or return;
+	my $vdate = <$vstamp>;
+	if ($vdate && $vdate =~ m/^(\d+)$/) {
+		$RELEASE_DATE = $1;
+		$status = 1;
+
+		# Capture local time at the same time so we can establish the difference
+		$LOCAL_DATE = time;
+	}
+	close($vstamp);
+	return $status;
+}
+
+sub check_system_time {
+	get_release_date();
+
+	if ($LOCAL_DATE) {
+		print "Checking system time\n";
+		my $failed;
+		my @details;
+		if ($NETWORK_DATE) {
+			my $offset = $LOCAL_DATE - $NETWORK_DATE;
+
+			if (abs($offset) > 120) {
+				$failed++;
+				log_error("System  time: ".(scalar gmtime($LOCAL_DATE))." UTC");
+				log_error("Network time: ".(scalar gmtime($NETWORK_DATE))." UTC");
+				push(@details, "Your system clock is ".abs($offset)." seconds ".($offset > 0 ? "ahead of" : "behind")." network time");
+			}
+			else {
+				log_pass("Your system clock is within 2 minutes of network time");
+			}
+		}
+		elsif ($RELEASE_DATE) {
+			my $offset = $LOCAL_DATE - $RELEASE_DATE;
+
+			if ($offset < 0) {
+				$failed++;
+				log_error("System  time: ".(scalar gmtime($LOCAL_DATE))." UTC");
+				log_error("Release time: ".(scalar gmtime($RELEASE_DATE))." UTC");
+				push(@details, "Your system time is prior to the date when this version of Clear Linux was released.");
+			}
+		}
+		else {
+			log_error("Network and release date not yet determined");
+		}
+
+		if ($failed) {
+			log_error(@details);
+			log_error("This can break HTTPS certificate validation");
+			add_action("Set your system clock appropriately");
+			add_action("Consult systemd-timesyncd for bare metal systems, or the appropriate local guest drivers for VM guests");
+		}
+	}
+}
