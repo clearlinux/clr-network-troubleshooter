@@ -25,6 +25,7 @@ if (check_download_clearlinux_org()) {
 else {
 	print "Troubleshooting\n";
 	check_gateway();
+	check_dns();
 	check_proxies_reachable();
 	check_for_captive_portal();
 
@@ -85,7 +86,7 @@ sub check_download_clearlinux_org {
 		my $response = `$command`;
 		my $rc = $? >> 8;
 		if ($rc) {
-			log_error("FAILED: ".uc($proto)." [$command] returned $rc");
+			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n";
 			$failed++;
 			$failures{$proto}++;
@@ -99,7 +100,7 @@ sub check_download_clearlinux_org {
 			}
 		}
 		else {
-			log_error("FAILED: expected a release number; got something else [$command]");
+			log_error("FAILED: expected a release number; got something else");
 			warn "$response\n";
 			$failed++;
 			$failures{$proto}++;
@@ -115,8 +116,8 @@ sub check_download_clearlinux_org {
 
 sub check_gateway {
 	my $hostname = '_gateway';
-	print "Attempting to reach your default router\n";
 	my $command = "/usr/bin/ping -q -c 1 -w 5 $hostname";
+	print "Attempting to reach your default router [$command]\n";
 	my $response = `$command`;
 	my $rc = $? >> 8;
 	if (!$rc) {
@@ -131,8 +132,28 @@ sub check_gateway {
 		add_action("This may be acceptable, but you should still check physical network connectivity");
 	}
 	else {
-		log_error("FAILED: [$command] failed for an unexpected reason");
+		log_error("FAILED: failed for an unexpected reason");
 		warn "$response\n";
+	}
+}
+
+sub check_dns {
+	# dig clearlinux.org +timeout=0
+	my $hostname = 'download.clearlinux.org';
+	my $command = "/usr/bin/dig +timeout=0 $hostname";
+	print "Attempting to query your DNS server(s) [$command]\n";
+	my $response = `$command`;
+	my $rc = $? >> 8;
+	if (!$rc) {
+		# Right now we don't care about the result of the lookup, only whether
+		# the configured DNS server responded to our query
+		log_pass("DNS server(s) responded to query");
+	}
+	else {
+		log_error("FAILED: DNS query failed (returned $rc)");
+		warn "$response\n";
+		$failures{dns}++;
+		add_action("Check your DNS configuration");
 	}
 }
 
@@ -151,7 +172,7 @@ sub check_for_captive_portal {
 		print "Checking for a captive portal [$command]\n";
 		my $response = `$command`;
 		if ($?) {
-			log_error("FAILED: $command");
+			log_error("FAILED: request returned ".($?>>8));
 			$failed++;
 		}
 		else {
@@ -166,11 +187,11 @@ sub check_for_captive_portal {
 					add_action('Launch a web browser and check for a captive portal (page replaced)');
 				}
 				else {
-					log_error("FAILED: [$command] failed with HTTP status $status");
+					log_error("FAILED: request failed with HTTP status $status");
 				}
 			}
 			else {
-				log_error("FAILED: [$command] got unknown response");
+				log_error("FAILED: got unknown response");
 				warn "$response\n";
 			}
 		}
@@ -222,7 +243,7 @@ sub check_proxies_reachable {
 			print "Testing $proxy_var=$proxy [$command]\n";
 			my $response = `$command`;
 			if ($?) {
-				log_error("FAILED: $command");
+				log_error("FAILED: command returned ".($?>>8));
 				$failed++;
 
 				# Check whether https was the problem
