@@ -38,7 +38,7 @@ else {
 print "\n\nSUMMARY\n";
 
 if (@actions) {
-	print join("\n", "Actions to take:", @actions, "");
+	print join("\n", "Suggested actions to take:", @actions, "");
 	exit 1;
 }
 if (@errors) {
@@ -80,7 +80,7 @@ sub check_download_clearlinux_org {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "/usr/bin/curl -s -i ${url}";
+		my $command = "/usr/bin/curl --connect-timeout 10 -s -i ${url}";
 		print "Testing $proto site: [${command}]\n";
 		my $response = `$command`;
 		my $rc = $? >> 8;
@@ -145,41 +145,80 @@ sub check_for_captive_portal {
 	# Via: 1.1 jfdmzpr10
 	# Connection: Keep-Alive
 	#
-	my $url = 'http://clients1.google.com/generate_204';
-	my $command = "/usr/bin/curl -s -i ${url}";
-	print "Checking for a captive portal [$command]\n";
-	my $response = `$command`;
-	if ($?) {
-		log_error("FAILED: $command");
-		$failed++;
-	}
-	else {
-		if (my ($method, $status) = ($response =~ m|^(HTTP/[\d\.]+) (\d+)|)) {
-			if ($status eq '204') {
-				log_pass("No captive portal detected");
-			}
-			elsif ($status =~ /^3\d\d$/) {
-				add_action('Launch a web browser and check for a captive portal (redirected)');
-			}
-			elsif ($status =~ /^2\d\d/) {
-				add_action('Launch a web browser and check for a captive portal (page replaced)');
-			}
-			else {
-				log_error("FAILED: [$command] failed with HTTP status $status");
-			}
+	{
+		my $url = 'http://clients1.google.com/generate_204';
+		my $command = "/usr/bin/curl --connect-timeout 10 -s -i ${url}";
+		print "Checking for a captive portal [$command]\n";
+		my $response = `$command`;
+		if ($?) {
+			log_error("FAILED: $command");
+			$failed++;
 		}
 		else {
-			log_error("FAILED: [$command] got unknown response");
-			warn "$response\n";
+			if (my ($method, $status) = ($response =~ m|^(HTTP/[\d\.]+) (\d+)|)) {
+				if ($status eq '204') {
+					log_pass("No captive portal detected");
+				}
+				elsif ($status =~ /^3\d\d$/) {
+					add_action('Launch a web browser and check for a captive portal (redirected)');
+				}
+				elsif ($status =~ /^2\d\d/) {
+					add_action('Launch a web browser and check for a captive portal (page replaced)');
+				}
+				else {
+					log_error("FAILED: [$command] failed with HTTP status $status");
+				}
+			}
+			else {
+				log_error("FAILED: [$command] got unknown response");
+				warn "$response\n";
+			}
 		}
 	}
 }
 
 sub check_proxies_reachable {
+	# Check for wpad/autoproxy
+	{
+		my $url = 'http://wpad/wpad.dat';
+		my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -I ${url}";
+		print "Checking for WPAD/autoproxy [$command]\n";
+		my $response = `$command`;
+		if ($?) {
+			warn "No autoproxy found\n";
+		}
+		elsif (my ($ct) = ($response =~ m/^Content-type:\s+(\S+)/im)) {
+			if ($ct eq 'application/x-ns-proxy-autoconfig') {
+				log_pass("Found a PAC file on server");
+				if (! -s "/run/pacrunner/wpad.dat") {
+					log_error("PAC file not loaded by system");
+					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+				}
+				elsif (`systemctl is-active pacrunner` ne 'active'
+					|| `systemctl is-active pacdiscovery` ne 'active') {
+					log_error("not running: pacrunner and/or pacdiscovery");
+					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+				}
+				else {
+					log_pass("Autoproxy/WPAD/PAC seems to be configured correctly");
+				}
+			}
+			else {
+				log_error("WPAD server returned something that doesn't look like a valid PAC (MIME type $ct)");
+				add_action("Check your WPAD/Autoproxy configuration with your network administrator");
+			}
+		}
+		else {
+			log_error("WPAD server returned garbage. Probably not at all valid.");
+			warn "$response\n";
+			add_action("Check proxy configuration with your network administrator.");
+		}
+	}
+
 	foreach my $proxy_var (qw(http_proxy https_proxy)) {
 		if (my $proxy = $ENV{${proxy_var}}) {
 			my $failed;
-			my $command = "/usr/bin/curl -s --proxy '' ${proxy}";
+			my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' ${proxy}";
 			print "Testing $proxy_var=$proxy [$command]\n";
 			my $response = `$command`;
 			if ($?) {
@@ -190,15 +229,29 @@ sub check_proxies_reachable {
 				if ($proxy =~ m/^https:/) {
 					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
 					$proxy =~ s/^(http)s(:)/$1$2/;
-					$command = "/usr/bin/curl -s --proxy '' ${proxy}";
+					$command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' ${proxy}";
 					my $response = `$command`;
 					if (!$?) {
-						add_action("Set $proxy_var to $proxy (replace https)");
+						add_action("Set \$$proxy_var to $proxy (replace https)");
 					}
+					else {
+						add_action("Check your \$$proxy_var setting");
+					}
+				}
+				else {
+					add_action("Check whether \$$proxy_var=$proxy is correct");
 				}
 			}
 			if (!$failed) {
 				log_pass("proxies are reachable");
+			}
+		}
+		else {
+			my ($proto) = split(/_/, $proxy_var);
+			if ($failures{$proto}) {
+				# No proxy server set for this protocol that failed our initial
+				# test
+				add_action("Set an appropriate \$$proxy_var");
 			}
 		}
 	}
@@ -268,7 +321,8 @@ sub check_system_time {
 			log_error(@details);
 			log_error("This can break HTTPS certificate validation");
 			add_action("Set your system clock appropriately");
-			add_action("Consult systemd-timesyncd for bare metal systems, or the appropriate local guest drivers for VM guests");
+			add_action("Consult `man systemd-timesyncd` for bare metal systems,");
+			add_action("or the appropriate local guest drivers for VM guests");
 		}
 	}
 }
