@@ -81,7 +81,7 @@ sub check_download_clearlinux_org {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "/usr/bin/curl --connect-timeout 10 -s -i ${url}";
+		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
 		print "Testing $proto site: [${command}]\n";
 		my $response = `$command`;
 		my $rc = $? >> 8;
@@ -168,7 +168,7 @@ sub check_for_captive_portal {
 	#
 	{
 		my $url = 'http://clients1.google.com/generate_204';
-		my $command = "/usr/bin/curl --connect-timeout 10 -s -i ${url}";
+		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
 		print "Checking for a captive portal [$command]\n";
 		my $response = `$command`;
 		if ($?) {
@@ -202,7 +202,7 @@ sub check_proxies_reachable {
 	# Check for wpad/autoproxy
 	{
 		my $url = 'http://wpad/wpad.dat';
-		my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -I ${url}";
+		my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -I -L ${url}";
 		print "Checking for WPAD/autoproxy [$command]\n";
 		my $response = `$command`;
 		if ($?) {
@@ -239,7 +239,7 @@ sub check_proxies_reachable {
 	foreach my $proxy_var (qw(http_proxy https_proxy)) {
 		if (my $proxy = $ENV{${proxy_var}}) {
 			my $failed;
-			my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' ${proxy}";
+			my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
 			print "Testing $proxy_var=$proxy [$command]\n";
 			my $response = `$command`;
 			if ($?) {
@@ -250,7 +250,7 @@ sub check_proxies_reachable {
 				if ($proxy =~ m/^https:/) {
 					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
 					$proxy =~ s/^(http)s(:)/$1$2/;
-					$command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' ${proxy}";
+					$command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
 					my $response = `$command`;
 					if (!$?) {
 						add_action("Set \$$proxy_var to $proxy (replace https)");
