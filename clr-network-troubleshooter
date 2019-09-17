@@ -16,6 +16,32 @@ my $NETWORK_DATE;
 my $RELEASE_DATE;
 my $LOCAL_DATE;
 
+# Emit basic info
+my $verfile = '/usr/share/clear/version';
+eval {
+-f $verfile
+	or die "Unable to find $verfile\n";
+open(my $verfh, '<', $verfile)
+	or die "Unable to open $verfile: $!\n";
+while (my $line = <$verfh>) {
+	chomp $line;
+	if ($line =~ /^(\d+)$/) {
+		print "Running on Clear Linux release $1\n";
+		last;
+	}
+	else {
+		die "$verfile content does not look like a release number: $line\n"
+	}
+}
+close($verfh)
+	or die "Unable to close $verfile: $!";
+};
+if ($@) {
+	warn "This does not look like a Clear Linux installation!\n";
+	warn "$@";
+	warn "Continuing anyway\n";
+}
+
 # Run the tests
 
 if (check_download_clearlinux_org()) {
@@ -40,7 +66,6 @@ print "\n\nSUMMARY\n";
 
 if (@actions) {
 	print join("\n", "Suggested actions to take:", @actions, "");
-	exit 1;
 }
 if (@errors) {
 	print "\nNETWORK TEST FAILED\n";
@@ -251,6 +276,7 @@ sub check_proxies_reachable {
 					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
 					$proxy =~ s/^(http)s(:)/$1$2/;
 					$command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
+					print "Testing $proxy_var=$proxy [$command]\n";
 					my $response = `$command`;
 					if (!$?) {
 						add_action("Set \$$proxy_var to $proxy (replace https)");
