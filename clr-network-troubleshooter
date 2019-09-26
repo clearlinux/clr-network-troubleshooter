@@ -44,7 +44,7 @@ if ($@) {
 
 # Run the tests
 
-if (check_download_clearlinux_org()) {
+if (check_download_clearlinux_org() && check_plain_http_site()) {
 	print "Connectivity seems ok\n";
 	exit;
 }
@@ -88,25 +88,34 @@ sub add_action {
 sub log_error {
 	foreach my $message (@_) {
 		push(@errors, $message);
-		warn "--> $message\n";
+		warn "  ! $message\n";
 	}
 }
 
 sub log_pass {
 	foreach my $message (@_) {
-		print "  > $message\n";
+		print "  . $message\n";
 	}
 }
 
 sub check_download_clearlinux_org {
+	my $proxy;
 	my $failed;
 	my $baseurl = 'download.clearlinux.org/latest';
 
-	foreach my $proto (qw(http https)) {
+	# Support an optional proxy
+	if (@_) {
+		$proxy = shift;
+	}
+
+	foreach my $proto (qw(https)) {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
 		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
+		if ($proxy) {
+			$command .= " --proxy '${proxy}'";
+		}
 		print "Testing $proto site: [${command}]\n";
 		my $response = `$command`;
 		my $rc = $? >> 8;
@@ -126,6 +135,33 @@ sub check_download_clearlinux_org {
 		}
 		else {
 			log_error("FAILED: expected a release number; got something else");
+			warn "$response\n";
+			$failed++;
+			$failures{$proto}++;
+		}
+	}
+	if (!$failed) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+sub check_plain_http_site {
+	my $failed;
+	my $baseurl = 'neverssl.com/';
+
+	foreach my $proto (qw(http)) {
+		my $url = join('://', lc $proto, $baseurl);
+
+		# Using system 'curl' binary
+		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
+		print "Testing $proto site: [${command}]\n";
+		my $response = `$command`;
+		my $rc = $? >> 8;
+		if ($rc) {
+			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n";
 			$failed++;
 			$failures{$proto}++;
@@ -275,10 +311,8 @@ sub check_proxies_reachable {
 				if ($proxy =~ m/^https:/) {
 					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
 					$proxy =~ s/^(http)s(:)/$1$2/;
-					$command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
 					print "Testing $proxy_var=$proxy [$command]\n";
-					my $response = `$command`;
-					if (!$?) {
+					if(check_download_clearlinux_org($proxy)) {
 						add_action("Set \$$proxy_var to $proxy (replace https)");
 					}
 					else {
