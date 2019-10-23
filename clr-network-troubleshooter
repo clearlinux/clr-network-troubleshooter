@@ -9,6 +9,12 @@
 use strict;
 use warnings;
 
+use feature 'unicode_strings';
+binmode(STDOUT, ":encoding(UTF-8)");
+binmode(STDERR, ":encoding(UTF-8)");
+
+print chr(0xFEFF);
+
 my @actions;
 my @errors;
 my %failures;
@@ -27,6 +33,7 @@ while (my $line = <$verfh>) {
 	chomp $line;
 	if ($line =~ /^(\d+)$/) {
 		print "Running on Clear Linux release $1\n";
+		print "---------------------------------\n";
 		last;
 	}
 	else {
@@ -44,12 +51,16 @@ if ($@) {
 
 # Run the tests
 
-if (check_download_clearlinux_org() && check_plain_http_site()) {
+if (check_download_clearlinux_org() & check_plain_http_site()) {
+	print "\n";
+	print "=====================\n";
 	print "Connectivity seems ok\n";
 	exit;
 }
 else {
+	print "\n";
 	print "Troubleshooting\n";
+	print "---------------\n";
 	check_gateway();
 	check_dns();
 	check_proxies_reachable();
@@ -62,10 +73,14 @@ else {
 
 # Report test results
 
-print "\n\nSUMMARY\n";
+print "\n";
+print "SUMMARY\n";
+print "=======\n";
 
 if (@actions) {
-	print join("\n", "Suggested actions to take:", @actions, "");
+	print "Suggested actions to take:\n";
+	print map { "\N{BULLET} $_\n" } @actions;
+	print "\n";
 }
 if (@errors) {
 	print "\nNETWORK TEST FAILED\n";
@@ -81,20 +96,27 @@ exit;
 sub add_action {
 	foreach my $message (@_) {
 		push(@actions, $message);
-		warn "==> $message\n";
+		warn "  \N{HEAVY WIDE-HEADED RIGHTWARDS ARROW} $message\n";
+	}
+}
+
+sub log_warning {
+	foreach my $message (@_) {
+		push(@errors, $message);
+		warn "  \N{WARNING SIGN} $message\n";
 	}
 }
 
 sub log_error {
 	foreach my $message (@_) {
 		push(@errors, $message);
-		warn "  ! $message\n";
+		warn "  \N{BALLOT X} $message\n";
 	}
 }
 
 sub log_pass {
 	foreach my $message (@_) {
-		print "  . $message\n";
+		print "  \N{CHECK MARK} $message\n";
 	}
 }
 
@@ -168,6 +190,7 @@ sub check_plain_http_site {
 		}
 	}
 	if (!$failed) {
+		log_pass("OK");
 		return 1;
 	}
 	else {
@@ -189,7 +212,7 @@ sub check_gateway {
 		add_action("check physical network connectivity, IP address settings (static or DHCP), etc.");
 	}
 	elsif ($rc == 1) {
-		log_error("POSSIBLY FAILED: no response from $hostname to pings");
+		log_warning("POSSIBLY FAILED: no response from $hostname to pings");
 		add_action("This may be acceptable, but you should still check physical network connectivity");
 	}
 	else {
@@ -273,12 +296,12 @@ sub check_proxies_reachable {
 			if ($ct eq 'application/x-ns-proxy-autoconfig') {
 				log_pass("Found a PAC file on server");
 				if (! -s "/run/pacrunner/wpad.dat") {
-					log_error("PAC file not loaded by system");
+					log_warning("PAC file not loaded by system");
 					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 				}
 				elsif (`systemctl is-active pacrunner` ne 'active'
 					|| `systemctl is-active pacdiscovery` ne 'active') {
-					log_error("not running: pacrunner and/or pacdiscovery");
+					log_warning("not running: pacrunner and/or pacdiscovery");
 					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 				}
 				else {
@@ -309,9 +332,9 @@ sub check_proxies_reachable {
 
 				# Check whether https was the problem
 				if ($proxy =~ m/^https:/) {
-					log_error("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
+					log_warning("HTTPS is rarely correct for a proxy server [$proxy_var=$proxy]; trying HTTP instead");
 					$proxy =~ s/^(http)s(:)/$1$2/;
-					print "Testing $proxy_var=$proxy [$command]\n";
+					print "Trying $proxy_var=$proxy\n";
 					if(check_download_clearlinux_org($proxy)) {
 						add_action("Set \$$proxy_var to $proxy (replace https)");
 					}
