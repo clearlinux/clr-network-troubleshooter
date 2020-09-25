@@ -21,6 +21,7 @@ my %failures;
 my $NETWORK_DATE;
 my $RELEASE_DATE;
 my $LOCAL_DATE;
+my $LATEST_RELEASE;
 
 # Emit basic info
 my $verfile = '/usr/share/clear/version';
@@ -51,7 +52,11 @@ if ($@) {
 
 # Run the tests
 
-if (check_download_clearlinux_org() & check_plain_http_site()) {
+my $main_version_check = check_download_clearlinux_org();
+my $mirror_version_check = check_mirror();
+
+if (($main_version_check || $mirror_version_check)
+	&& check_plain_http_site()) {
 	print "\n";
 	print "=====================\n";
 	print "Connectivity seems ok\n";
@@ -66,6 +71,8 @@ else {
 	check_proxies_reachable();
 	check_for_captive_portal();
 
+	# If HTTPS fails, while HTTP succeeds, one likely failure scenario is
+	# incorrect system time falsely causing certificate verification failure
 	if ($failures{https} && !$failures{http}) {
 		check_system_time();
 	}
@@ -149,6 +156,7 @@ sub check_download_clearlinux_org {
 		}
 		elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
 			log_pass("Got release $1");
+			$LATEST_RELEASE = $1;
 
 			# Grab the date from here to check
 			if (!$NETWORK_DATE && (my ($http_date) = ($response =~ m/^date: (.*)/mi))) {
@@ -191,6 +199,60 @@ sub check_plain_http_site {
 	}
 	if (!$failed) {
 		log_pass("OK");
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+sub check_mirror {
+	my $proxy;
+	my $failed;
+
+	# Support an optional proxy
+	if (@_) {
+		$proxy = shift;
+	}
+
+	# Check for a configured mirror
+	my $swupd = `swupd mirror`;
+	my ($version_url) = ($swupd =~ m/Version URL\s*:\s*(\S+)/);
+
+	if ($version_url) {
+		$version_url =~ s|[^/]+/?$|latest|;
+	}
+
+	if (! $version_url || $version_url =~ m|^https://(?:cdn\.)?download.clearlinux.org/latest|) {
+		# Using the default location; skip this test
+		return 0;
+	}
+
+	# Using system 'curl' binary
+	my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${version_url}";
+	if ($proxy) {
+		$command .= " --proxy '${proxy}'";
+	}
+	print "Testing configured mirror [${command}]\n";
+	my $response = `$command`;
+	my $rc = $? >> 8;
+	if ($rc) {
+		log_error("FAILED: request returned $rc");
+		warn "$response\n";
+		$failed++;
+	}
+	elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
+		log_pass("Got release $1");
+		if ($LATEST_RELEASE && $LATEST_RELEASE != $1) {
+			log_warning("Latest official release is $LATEST_RELEASE, but configured mirror has $1");
+		}
+	}
+	else {
+		log_error("FAILED: expected a release number; got something else");
+		warn "$response\n";
+		$failed++;
+	}
+	if (!$failed) {
 		return 1;
 	}
 	else {
