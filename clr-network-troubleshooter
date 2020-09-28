@@ -51,12 +51,12 @@ if ($@) {
 }
 
 # Run the tests
-
+# Do them all, regardless of outcome (avoid short-circuiting).
 my $main_version_check = check_download_clearlinux_org();
 my $mirror_version_check = check_mirror();
+my $plain_http_check = check_plain_http_site();
 
-if (($main_version_check || $mirror_version_check)
-	&& check_plain_http_site()) {
+if ($main_version_check && $mirror_version_check && $plain_http_check) {
 	print "\n";
 	print "=====================\n";
 	print "Connectivity seems ok\n";
@@ -218,18 +218,19 @@ sub check_mirror {
 	# Check for a configured mirror
 	my $swupd = `swupd mirror`;
 	my ($version_url) = ($swupd =~ m/Version URL\s*:\s*(\S+)/);
+	my $test_url = $version_url;
 
-	if ($version_url) {
-		$version_url =~ s|[^/]+/?$|latest|;
+	if ($test_url) {
+		$test_url =~ s|[^/]+/?$|latest|;
 	}
 
-	if (! $version_url || $version_url =~ m|^https://(?:cdn\.)?download.clearlinux.org/latest|) {
+	if (! $test_url || $test_url =~ m|^https://(?:cdn\.)?download.clearlinux.org/latest|) {
 		# Using the default location; skip this test
-		return 0;
+		return 1;
 	}
 
 	# Using system 'curl' binary
-	my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${version_url}";
+	my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${test_url}";
 	if ($proxy) {
 		$command .= " --proxy '${proxy}'";
 	}
@@ -240,6 +241,7 @@ sub check_mirror {
 		log_error("FAILED: request returned $rc");
 		warn "$response\n";
 		$failed++;
+		add_action("Verify that $version_url is a valid mirror URL (see 'swupd mirror --help')");
 	}
 	elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
 		log_pass("Got release $1");
