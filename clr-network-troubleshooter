@@ -9,6 +9,9 @@
 use strict;
 use warnings;
 
+use Getopt::Long;
+use foo::Bar;
+
 use feature 'unicode_strings';
 binmode(STDOUT, ":encoding(UTF-8)");
 binmode(STDERR, ":encoding(UTF-8)");
@@ -16,12 +19,23 @@ binmode(STDERR, ":encoding(UTF-8)");
 print chr(0xFEFF);
 
 my @actions;
+my @warnings;
 my @errors;
 my %failures;
 my $NETWORK_DATE;
 my $RELEASE_DATE;
 my $LOCAL_DATE;
 my $LATEST_RELEASE;
+
+# Options
+my $OPT_FULL = 0;		# Whether to run all diagnostics even if basic tests
+						# pass
+my $OPT_SELFTEST = 0;	# Whether to return 0 even if network tests fail. Used
+						# for testing presence of dependencies only.
+GetOptions(
+	'full!' => \$OPT_FULL,
+	'selftest|self-test!' => \$OPT_SELFTEST,
+);
 
 # Emit basic info
 my $verfile = '/usr/share/clear/version';
@@ -56,7 +70,7 @@ my $main_version_check = check_download_clearlinux_org();
 my $mirror_version_check = check_mirror();
 my $plain_http_check = check_plain_http_site();
 
-if ($main_version_check && $mirror_version_check && $plain_http_check) {
+if (! $OPT_FULL && $main_version_check && $mirror_version_check && $plain_http_check) {
 	print "\n";
 	print "=====================\n";
 	print "Connectivity seems ok\n";
@@ -91,7 +105,9 @@ if (@actions) {
 }
 if (@errors) {
 	print "\nNETWORK TEST FAILED\n";
-	exit 1;
+	if (! $OPT_SELFTEST) {
+		exit 1;
+	}
 }
 else
 {
@@ -109,7 +125,7 @@ sub add_action {
 
 sub log_warning {
 	foreach my $message (@_) {
-		push(@errors, $message);
+		push(@warnings, $message);
 		warn "  \N{WARNING SIGN} $message\n";
 	}
 }
@@ -127,6 +143,23 @@ sub log_pass {
 	}
 }
 
+sub run_cmd {
+	my $command = shift or return;
+	my $bin = (split(' ', $command))[0];
+	my $output = `$command`;
+	my $rc = $?;
+
+	if ($rc < 0) {
+		die "Failed to execute $bin -- check installation\n";
+	}
+	elsif ($rc & 127) {
+		die "$bin received signal " . $rc & 127
+		. ($rc & 128) ? ".\n" : " and dumped core.\n";
+	}
+	else {
+		return ($rc >> 8, $output);
+	}
+}
 sub check_download_clearlinux_org {
 	my $proxy;
 	my $failed;
@@ -146,8 +179,7 @@ sub check_download_clearlinux_org {
 			$command .= " --proxy '${proxy}'";
 		}
 		print "Testing $proto site: [${command}]\n";
-		my $response = `$command`;
-		my $rc = $? >> 8;
+		my ($rc, $response) = run_cmd($command);
 		if ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n";
@@ -188,8 +220,7 @@ sub check_plain_http_site {
 		# Using system 'curl' binary
 		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
 		print "Testing $proto site: [${command}]\n";
-		my $response = `$command`;
-		my $rc = $? >> 8;
+		my ($rc, $response) = run_cmd($command);
 		if ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n";
@@ -235,8 +266,7 @@ sub check_mirror {
 		$command .= " --proxy '${proxy}'";
 	}
 	print "Testing configured mirror [${command}]\n";
-	my $response = `$command`;
-	my $rc = $? >> 8;
+	my ($rc, $response) = run_cmd($command);
 	if ($rc) {
 		log_error("FAILED: request returned $rc");
 		warn "$response\n";
@@ -266,8 +296,7 @@ sub check_gateway {
 	my $hostname = '_gateway';
 	my $command = "/usr/bin/ping -q -c 1 -w 5 $hostname";
 	print "Attempting to reach your default router [$command]\n";
-	my $response = `$command`;
-	my $rc = $? >> 8;
+	my ($rc, $response) = run_cmd($command);
 	if (!$rc) {
 		log_pass("default router is reachable (as $hostname)");
 	}
@@ -290,8 +319,7 @@ sub check_dns {
 	my $hostname = 'download.clearlinux.org';
 	my $command = "/usr/bin/dig +timeout=0 $hostname";
 	print "Attempting to query your DNS server(s) [$command]\n";
-	my $response = `$command`;
-	my $rc = $? >> 8;
+	my ($rc, $response) = run_cmd($command);
 	if (!$rc) {
 		# Right now we don't care about the result of the lookup, only whether
 		# the configured DNS server responded to our query
