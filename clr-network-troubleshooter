@@ -10,7 +10,6 @@ use strict;
 use warnings;
 
 use Getopt::Long;
-use foo::Bar;
 
 use feature 'unicode_strings';
 binmode(STDOUT, ":encoding(UTF-8)");
