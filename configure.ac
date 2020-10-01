@@ -2,8 +2,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([clr-network-troubleshooter], [12])
-AM_INIT_AUTOMAKE(clr-network-troubleshooter, 12)
+AC_INIT([clr-network-troubleshooter],[12])
+AM_INIT_AUTOMAKE
 
 # Checks for programs.
 AC_PROG_INSTALL
@@ -17,4 +17,6 @@ AC_PROG_INSTALL
 # Checks for library functions.
 
 AC_CONFIG_FILES([Makefile])
-AC_OUTPUT(scripts/Makefile)
+AC_CONFIG_FILES([scripts/Makefile])
+AC_CONFIG_FILES([tests/Makefile])
+AC_OUTPUT
