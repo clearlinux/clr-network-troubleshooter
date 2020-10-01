@@ -39,6 +39,7 @@ GetOptions(
 );
 
 # Emit basic info
+print "clr-network-troubleshooter v${VERSION}\n";
 my $verfile = '/usr/share/clear/version';
 eval {
 -f $verfile
