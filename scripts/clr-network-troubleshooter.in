@@ -249,7 +249,7 @@ sub check_mirror {
 	}
 
 	# Check for a configured mirror
-	my $swupd = `swupd mirror`;
+	my $swupd = `swupd mirror --nosigcheck --nosigcheck-latest`;
 	my ($version_url) = ($swupd =~ m/Version URL\s*:\s*(\S+)/);
 	my $test_url = $version_url;
 
