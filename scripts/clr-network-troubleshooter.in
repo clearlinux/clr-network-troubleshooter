@@ -27,6 +27,7 @@ my $NETWORK_DATE;
 my $RELEASE_DATE;
 my $LOCAL_DATE;
 my $LATEST_RELEASE;
+my $ON_CLEAR_LINUX;
 
 # Options
 my $OPT_FULL = 0;		# Whether to run all diagnostics even if basic tests
@@ -42,23 +43,25 @@ GetOptions(
 print "clr-network-troubleshooter v${VERSION}\n";
 my $verfile = '/usr/share/clear/version';
 eval {
--f $verfile
-	or die "Unable to find $verfile\n";
-open(my $verfh, '<', $verfile)
-	or die "Unable to open $verfile: $!\n";
-while (my $line = <$verfh>) {
-	chomp $line;
-	if ($line =~ /^(\d+)$/) {
-		print "Running on Clear Linux release $1\n";
-		print "---------------------------------\n";
-		last;
+	-f $verfile
+		or die "Unable to find $verfile\n";
+	open(my $verfh, '<', $verfile)
+		or die "Unable to open $verfile: $!\n";
+	while (my $line = <$verfh>) {
+		chomp $line;
+		if ($line =~ /^(\d+)$/) {
+			print "Running on Clear Linux release $1\n";
+			print "---------------------------------\n";
+			last;
+		}
+		else {
+			die "$verfile content does not look like a release number: $line\n"
+		}
 	}
-	else {
-		die "$verfile content does not look like a release number: $line\n"
-	}
-}
-close($verfh)
-	or die "Unable to close $verfile: $!";
+	close($verfh)
+		or die "Unable to close $verfile: $!";
+
+	$ON_CLEAR_LINUX=1;
 };
 if ($@) {
 	warn "This does not look like a Clear Linux installation!\n";
@@ -85,6 +88,7 @@ else {
 	check_gateway();
 	check_dns();
 	check_proxies_reachable();
+	check_proxies_necessary();
 	check_for_captive_portal();
 
 	# If HTTPS fails, while HTTP succeeds, one likely failure scenario is
@@ -176,15 +180,15 @@ sub check_download_clearlinux_org {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
-		if ($proxy) {
+		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		if (defined $proxy) {
 			$command .= " --proxy '${proxy}'";
 		}
-		print "Testing $proto site: [${command}]\n";
+		print "\nTesting $proto site: [${command}]\n";
 		my ($rc, $response) = run_cmd($command);
 		if ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
-			warn "$response\n";
+			warn "$response\n" if $response;
 			$failed++;
 			$failures{$proto}++;
 		}
@@ -194,12 +198,17 @@ sub check_download_clearlinux_org {
 
 			# Grab the date from here to check
 			if (!$NETWORK_DATE && (my ($http_date) = ($response =~ m/^date: (.*)/mi))) {
-				set_network_date(`/usr/bin/date -d "${http_date}" +%s`);
+				set_network_date(`date -d "${http_date}" +%s`);
+			}
+
+			if (defined $proxy && $proxy eq '') {
+				log_warning("Successfully retrieved $url with proxy bypassed");
+				add_action("Check your proxy/noproxy config for $url");
 			}
 		}
 		else {
 			log_error("FAILED: expected a release number; got something else");
-			warn "$response\n";
+			warn "$response\n" if $response;
 			$failed++;
 			$failures{$proto}++;
 		}
@@ -213,21 +222,36 @@ sub check_download_clearlinux_org {
 }
 
 sub check_plain_http_site {
+	my $proxy;
 	my $failed;
 	my $baseurl = 'neverssl.com/';
+
+	# Support an optional proxy
+	if (@_) {
+		$proxy = shift;
+	}
 
 	foreach my $proto (qw(http)) {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
-		print "Testing $proto site: [${command}]\n";
+		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		if (defined $proxy) {
+			$command .= " --proxy '${proxy}'";
+		}
+		print "\nTesting $proto site: [${command}]\n";
 		my ($rc, $response) = run_cmd($command);
 		if ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
-			warn "$response\n";
+			warn "$response\n" if $response;
 			$failed++;
 			$failures{$proto}++;
+		}
+		else {
+			if (defined $proxy && $proxy eq '') {
+				log_warning("Successfully retrieved $url with proxy bypassed");
+				add_action("Check your proxy/noproxy config for $url");
+			}
 		}
 	}
 	if (!$failed) {
@@ -248,6 +272,8 @@ sub check_mirror {
 		$proxy = shift;
 	}
 
+	return 1 unless $ON_CLEAR_LINUX;
+
 	# Check for a configured mirror
 	my $swupd = `swupd mirror --nosigcheck --nosigcheck-latest`;
 	my ($version_url) = ($swupd =~ m/Version URL\s*:\s*(\S+)/);
@@ -263,27 +289,31 @@ sub check_mirror {
 	}
 
 	# Using system 'curl' binary
-	my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${test_url}";
-	if ($proxy) {
+	my $command = "curl --connect-timeout 10 -s -i -L ${test_url}";
+	if (defined $proxy) {
 		$command .= " --proxy '${proxy}'";
 	}
-	print "Testing configured mirror [${command}]\n";
+	print "\nTesting configured mirror [${command}]\n";
 	my ($rc, $response) = run_cmd($command);
 	if ($rc) {
 		log_error("FAILED: request returned $rc");
-		warn "$response\n";
+		warn "$response\n" if $response;
 		$failed++;
 		add_action("Verify that $version_url is a valid mirror URL (see 'swupd mirror --help')");
 	}
 	elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
 		log_pass("Got release $1");
+		if (defined $proxy && $proxy eq '') {
+			log_warning("Successfully retrieved $version_url with proxy bypassed");
+			add_action("Check your proxy/noproxy config for $version_url");
+		}
 		if ($LATEST_RELEASE && $LATEST_RELEASE != $1) {
 			log_warning("Latest official release is $LATEST_RELEASE, but configured mirror has $1");
 		}
 	}
 	else {
 		log_error("FAILED: expected a release number; got something else");
-		warn "$response\n";
+		warn "$response\n" if $response;
 		$failed++;
 	}
 	if (!$failed) {
@@ -296,8 +326,8 @@ sub check_mirror {
 
 sub check_gateway {
 	my $hostname = '_gateway';
-	my $command = "/usr/bin/ping -q -c 1 -w 5 $hostname";
-	print "Attempting to reach your default router [$command]\n";
+	my $command = "ping -q -c 1 -w 5 $hostname";
+	print "\nAttempting to reach your default router [$command]\n";
 	my ($rc, $response) = run_cmd($command);
 	if (!$rc) {
 		log_pass("default router is reachable (as $hostname)");
@@ -312,15 +342,15 @@ sub check_gateway {
 	}
 	else {
 		log_error("FAILED: failed for an unexpected reason");
-		warn "$response\n";
+		warn "$response\n" if $response;
 	}
 }
 
 sub check_dns {
 	# dig clearlinux.org +timeout=0
 	my $hostname = 'download.clearlinux.org';
-	my $command = "/usr/bin/dig +timeout=0 $hostname";
-	print "Attempting to query your DNS server(s) [$command]\n";
+	my $command = "dig +timeout=0 $hostname";
+	print "\nAttempting to query your DNS server(s) [$command]\n";
 	my ($rc, $response) = run_cmd($command);
 	if (!$rc) {
 		# Right now we don't care about the result of the lookup, only whether
@@ -329,7 +359,7 @@ sub check_dns {
 	}
 	else {
 		log_error("FAILED: DNS query failed (returned $rc)");
-		warn "$response\n";
+		warn "$response\n" if $response;
 		$failures{dns}++;
 		add_action("Check your DNS configuration");
 	}
@@ -346,8 +376,8 @@ sub check_for_captive_portal {
 	#
 	{
 		my $url = 'http://clients1.google.com/generate_204';
-		my $command = "/usr/bin/curl --connect-timeout 10 -s -i -L ${url}";
-		print "Checking for a captive portal [$command]\n";
+		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		print "\nChecking for a captive portal [$command]\n";
 		my $response = `$command`;
 		if ($?) {
 			log_error("FAILED: request returned ".($?>>8));
@@ -370,7 +400,7 @@ sub check_for_captive_portal {
 			}
 			else {
 				log_error("FAILED: got unknown response");
-				warn "$response\n";
+				warn "$response\n" if $response;
 			}
 		}
 	}
@@ -380,11 +410,11 @@ sub check_proxies_reachable {
 	# Check for wpad/autoproxy
 	{
 		my $url = 'http://wpad/wpad.dat';
-		my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -I -L ${url}";
-		print "Checking for WPAD/autoproxy [$command]\n";
+		my $command = "curl --connect-timeout 10 -s --proxy '' -I -L ${url}";
+		print "\nChecking for WPAD/autoproxy [$command]\n";
 		my $response = `$command`;
 		if ($?) {
-			warn "No autoproxy found\n";
+			log_warning("No autoproxy found");
 		}
 		elsif (my ($ct) = ($response =~ m/^Content-type:\s+(\S+)/im)) {
 			if ($ct eq 'application/x-ns-proxy-autoconfig') {
@@ -409,7 +439,7 @@ sub check_proxies_reachable {
 		}
 		else {
 			log_error("WPAD server returned garbage. Probably not at all valid.");
-			warn "$response\n";
+			warn "$response\n" if $response;
 			add_action("Check proxy configuration with your network administrator.");
 		}
 	}
@@ -417,8 +447,8 @@ sub check_proxies_reachable {
 	foreach my $proxy_var (qw(http_proxy https_proxy)) {
 		if (my $proxy = $ENV{${proxy_var}}) {
 			my $failed;
-			my $command = "/usr/bin/curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
-			print "Testing $proxy_var=$proxy [$command]\n";
+			my $command = "curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
+			print "\nTesting $proxy_var=$proxy [$command]\n";
 			my $response = `$command`;
 			if ($?) {
 				log_error("FAILED: command returned ".($?>>8));
@@ -455,6 +485,14 @@ sub check_proxies_reachable {
 	}
 }
 
+sub check_proxies_necessary {
+	# Check whether proxies are actually necessary to reach the test URLs
+
+	!$main_version_check && check_download_clearlinux_org('');
+	!$mirror_version_check && check_mirror('');
+	!$plain_http_check && check_plain_http_site('');
+}
+
 sub set_network_date {
 	my $date = shift;
 	if ($date && $date =~ m/^\d+$/) {
@@ -485,7 +523,7 @@ sub check_system_time {
 	get_release_date();
 
 	if ($LOCAL_DATE) {
-		print "Checking system time\n";
+		print "\nChecking system time\n";
 		my $failed;
 		my @details;
 		if ($NETWORK_DATE) {
