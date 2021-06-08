@@ -444,7 +444,7 @@ sub check_proxies_reachable {
 		}
 	}
 
-	foreach my $proxy_var (qw(http_proxy https_proxy)) {
+	foreach my $proxy_var (qw(http_proxy https_proxy HTTPS_PROXY)) {
 		if (my $proxy = $ENV{${proxy_var}}) {
 			my $failed;
 			my $command = "curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
@@ -488,9 +488,9 @@ sub check_proxies_reachable {
 sub check_proxies_necessary {
 	# Check whether proxies are actually necessary to reach the test URLs
 
-	!$main_version_check && check_download_clearlinux_org('');
-	!$mirror_version_check && check_mirror('');
-	!$plain_http_check && check_plain_http_site('');
+	($OPT_FULL || !$main_version_check)   && check_download_clearlinux_org('');
+	($OPT_FULL || !$mirror_version_check) && check_mirror('');
+	($OPT_FULL || !$plain_http_check)     && check_plain_http_site('');
 }
 
 sub set_network_date {
