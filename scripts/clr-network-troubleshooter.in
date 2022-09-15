@@ -423,8 +423,8 @@ sub check_proxies_reachable {
 					log_warning("PAC file not loaded by system");
 					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 				}
-				elsif (`systemctl is-active pacrunner` ne 'active'
-					|| `systemctl is-active pacdiscovery` ne 'active') {
+				elsif (`systemctl is-active pacrunner` !~ /^active$/
+					|| `systemctl is-active pacdiscovery` !~ /^active$/) {
 					log_warning("not running: pacrunner and/or pacdiscovery");
 					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 				}
