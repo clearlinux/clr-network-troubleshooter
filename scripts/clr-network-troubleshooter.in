@@ -280,7 +280,7 @@ sub check_mirror {
 	my $test_url = $version_url;
 
 	if ($test_url) {
-		$test_url =~ s|[^/]+/?$|latest|;
+		$test_url =~ s|/?$|/version/latest_version|;
 	}
 
 	if (! $test_url || $test_url =~ m|^https://(?:cdn\.)?download.clearlinux.org/latest|) {
