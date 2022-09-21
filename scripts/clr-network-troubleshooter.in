@@ -19,9 +19,9 @@ our $VERSION = '@VERSION@';
 
 print chr(0xFEFF);
 
-my @actions;
-my @warnings;
-my @errors;
+my %actions;
+my %warnings;
+my %errors;
 my %failures;
 my $NETWORK_DATE;
 my $RELEASE_DATE;
@@ -104,12 +104,12 @@ print "\n";
 print "SUMMARY\n";
 print "=======\n";
 
-if (@actions) {
+if (%actions) {
 	print "Suggested actions to take:\n";
-	print map { "\N{BULLET} $_\n" } @actions;
+	print map { "\N{BULLET} $_\n" } keys %actions;
 	print "\n";
 }
-if (@errors) {
+if (%errors) {
 	print "\nNETWORK TEST FAILED\n";
 	if (! $OPT_SELFTEST) {
 		exit 1;
@@ -124,21 +124,21 @@ exit;
 
 sub add_action {
 	foreach my $message (@_) {
-		push(@actions, $message);
+		$actions{$message}++;
 		warn "  \N{HEAVY WIDE-HEADED RIGHTWARDS ARROW} $message\n";
 	}
 }
 
 sub log_warning {
 	foreach my $message (@_) {
-		push(@warnings, $message);
+		$warnings{$message}++;
 		warn "  \N{WARNING SIGN} $message\n";
 	}
 }
 
 sub log_error {
 	foreach my $message (@_) {
-		push(@errors, $message);
+		$errors{$message}++;
 		warn "  \N{BALLOT X} $message\n";
 	}
 }
