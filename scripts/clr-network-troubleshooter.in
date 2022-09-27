@@ -419,16 +419,35 @@ sub check_proxies_reachable {
 		elsif (my ($ct) = ($response =~ m/^Content-type:\s+(\S+)/im)) {
 			if ($ct eq 'application/x-ns-proxy-autoconfig') {
 				log_pass("Found a PAC file on server");
+				my $fail = 0;
 				if (! -s "/run/pacrunner/wpad.dat") {
 					log_warning("PAC file not loaded by system");
 					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+					$fail++;
 				}
-				elsif (`systemctl is-active pacrunner` !~ /^active$/
-					|| `systemctl is-active pacdiscovery` !~ /^active$/) {
-					log_warning("not running: pacrunner and/or pacdiscovery");
-					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+				if (`systemctl is-active pacdiscovery` !~ /^active$/) {
+					log_warning("not running: pacdiscovery");
+					if (`systemctl is-enabled pacdiscovery` =~ /^masked$/) {
+						log_warning("masked: pacdiscovery");
+						add_action("Unmask and restart pacdiscovery:\n\t(sudo systemctl unmask pacdiscovery; sudo systemctl restart pacdiscovery)");
+					}
+					else {
+						add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+					}
+					$fail++;
 				}
-				else {
+				if (`systemctl is-active pacrunner` !~ /^active$/) {
+					log_warning("not running: pacrunner");
+					if (`systemctl is-enabled pacrunner` =~ /^masked$/) {
+						log_warning("masked: pacrunner");
+						add_action("Unmask and restart pacrunner\n\t(sudo systemctl unmask pacrunner; sudo systemctl restart pacrunner)");
+					}
+					else {
+						add_action("Restart pacrunner (sudo systemctl restart pacrunner)");
+					}
+					$fail++;
+				}
+				if (! $fail) {
 					log_pass("Autoproxy/WPAD/PAC seems to be configured correctly");
 				}
 			}
