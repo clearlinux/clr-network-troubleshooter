@@ -186,7 +186,14 @@ sub check_download_clearlinux_org {
 		}
 		print "\nTesting $proto site: [${command}]\n";
 		my ($rc, $response) = run_cmd($command);
-		if ($rc) {
+		if ($rc == 60 && $proto eq 'https') {
+			log_error("FAILED: SSL certificate verification failed for ${url}");
+			warn "$response\n" if $response;
+			$failed++;
+			add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
+			log_warning("This could also indicate a MITM attack");
+		}
+		elsif ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n" if $response;
 			$failed++;
@@ -295,7 +302,15 @@ sub check_mirror {
 	}
 	print "\nTesting configured mirror [${command}]\n";
 	my ($rc, $response) = run_cmd($command);
-	if ($rc) {
+	if ($rc == 60 && $test_url =~ m|^https://|) {
+		log_error("FAILED: SSL certificate verification failed for ${test_url}");
+		warn "$response\n" if $response;
+		$failed++;
+		add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
+		add_action("Verify that you have the correct hostname set for your configured mirror");
+		log_warning("This could also indicate a MITM attack");
+	}
+	elsif ($rc) {
 		log_error("FAILED: request returned $rc");
 		warn "$response\n" if $response;
 		$failed++;
