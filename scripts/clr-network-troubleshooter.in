@@ -180,7 +180,7 @@ sub check_download_clearlinux_org {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		my $command = "timeout 15 curl --connect-timeout 10 -s -i -L ${url}";
 		if (defined $proxy) {
 			$command .= " --proxy '${proxy}'";
 		}
@@ -192,6 +192,10 @@ sub check_download_clearlinux_org {
 			$failed++;
 			add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
 			log_warning("This could also indicate a MITM attack");
+		}
+		elsif ($rc == 124) {
+			log_error("FAILED: curl command timed out");
+			$failed++;
 		}
 		elsif ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
@@ -242,13 +246,17 @@ sub check_plain_http_site {
 		my $url = join('://', lc $proto, $baseurl);
 
 		# Using system 'curl' binary
-		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		my $command = "timeout 15 curl --connect-timeout 10 -s -i -L ${url}";
 		if (defined $proxy) {
 			$command .= " --proxy '${proxy}'";
 		}
 		print "\nTesting $proto site: [${command}]\n";
 		my ($rc, $response) = run_cmd($command);
-		if ($rc) {
+		if ($rc == 124) {
+			log_error("FAILED: curl command timed out");
+			$failed++;
+		}
+		elsif ($rc) {
 			log_error("FAILED: ".uc($proto)." request returned $rc");
 			warn "$response\n" if $response;
 			$failed++;
@@ -296,7 +304,7 @@ sub check_mirror {
 	}
 
 	# Using system 'curl' binary
-	my $command = "curl --connect-timeout 10 -s -i -L ${test_url}";
+	my $command = "timeout 15 curl --connect-timeout 10 -s -i -L ${test_url}";
 	if (defined $proxy) {
 		$command .= " --proxy '${proxy}'";
 	}
@@ -309,6 +317,10 @@ sub check_mirror {
 		add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
 		add_action("Verify that you have the correct hostname set for your configured mirror");
 		log_warning("This could also indicate a MITM attack");
+	}
+	elsif ($rc == 124) {
+		log_error("FAILED: curl command timed out");
+		$failed++;
 	}
 	elsif ($rc) {
 		log_error("FAILED: request returned $rc");
@@ -367,7 +379,12 @@ sub check_dns {
 	my $command = "dig +timeout=0 $hostname";
 	print "\nAttempting to query your DNS server(s) [$command]\n";
 	my ($rc, $response) = run_cmd($command);
-	if (!$rc) {
+	if ($rc == 9) {
+		log_error("FAILED: Configured DNS servers did not respond");
+		add_action("Check whether you have the correct DNS servers configured");
+		add_action("Check for network outages");
+	}
+	elsif (!$rc) {
 		# Right now we don't care about the result of the lookup, only whether
 		# the configured DNS server responded to our query
 		log_pass("DNS server(s) responded to query");
@@ -391,11 +408,15 @@ sub check_for_captive_portal {
 	#
 	{
 		my $url = 'http://clients1.google.com/generate_204';
-		my $command = "curl --connect-timeout 10 -s -i -L ${url}";
+		my $command = "timeout 15 curl --connect-timeout 10 -s -i -L ${url}";
 		print "\nChecking for a captive portal [$command]\n";
-		my $response = `$command`;
-		if ($?) {
-			log_error("FAILED: request returned ".($?>>8));
+		my ($rc, $response) = run_cmd($command);
+		if ($rc == 124) {
+			log_error("FAILED: curl command timed out");
+			$failed++;
+		}
+		elsif ($rc) {
+			log_error("FAILED: request returned ".($rc>>8));
 			$failed++;
 		}
 		else {
@@ -425,10 +446,13 @@ sub check_proxies_reachable {
 	# Check for wpad/autoproxy
 	{
 		my $url = 'http://wpad/wpad.dat';
-		my $command = "curl --connect-timeout 10 -s --proxy '' -I -L ${url}";
+		my $command = "timeout 15 curl --connect-timeout 10 -s --proxy '' -I -L ${url}";
 		print "\nChecking for WPAD/autoproxy [$command]\n";
-		my $response = `$command`;
-		if ($?) {
+		my ($rc, $response) = run_cmd($command);
+		if ($rc == 124) {
+			log_error("FAILED: curl command timed out");
+		}
+		elsif ($rc) {
 			log_warning("No autoproxy found");
 		}
 		elsif (my ($ct) = ($response =~ m/^Content-type:\s+(\S+)/im)) {
@@ -481,11 +505,15 @@ sub check_proxies_reachable {
 	foreach my $proxy_var (qw(http_proxy https_proxy HTTPS_PROXY)) {
 		if (my $proxy = $ENV{${proxy_var}}) {
 			my $failed;
-			my $command = "curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
+			my $command = "timeout 15 curl --connect-timeout 10 -s --proxy '' -L ${proxy}";
 			print "\nTesting $proxy_var=$proxy [$command]\n";
-			my $response = `$command`;
-			if ($?) {
-				log_error("FAILED: command returned ".($?>>8));
+			my ($rc, $response) = run_cmd($command);
+			if ($rc == 124) {
+				log_error("FAILED: curl command timed out");
+				$failed++;
+			}
+			elsif ($rc) {
+				log_error("FAILED: command returned ".($rc>>8));
 				$failed++;
 
 				# Check whether https was the problem
