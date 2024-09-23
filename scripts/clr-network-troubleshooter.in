@@ -104,7 +104,7 @@ else {
 
 	# If HTTPS fails, while HTTP succeeds, one likely failure scenario is
 	# incorrect system time falsely causing certificate verification failure
-	if ($failures{https} && !$failures{http}) {
+	if ($OPT_FULL || ($failures{https} && !$failures{http})) {
 		check_system_time();
 	}
 }

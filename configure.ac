@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([clr-network-troubleshooter],[20])
+AC_INIT([clr-network-troubleshooter],[21])
 AM_INIT_AUTOMAKE
 
 # Checks for programs.
