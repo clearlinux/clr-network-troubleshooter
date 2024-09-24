@@ -117,7 +117,7 @@ print "=======\n";
 
 if (%actions) {
 	print "Suggested actions to take:\n";
-	print map { "\N{BULLET} $_\n" } keys %actions;
+	print map { "\N{BULLET} $_\n" } sort keys %actions;
 	print "\n";
 }
 if (%errors) {
@@ -201,7 +201,7 @@ sub check_download_clearlinux_org {
 			log_error("FAILED: SSL certificate verification failed for ${url}");
 			warn "$response\n" if $response;
 			$failed++;
-			add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
+			add_action("SSL: Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
 			log_warning("This could also indicate a MITM attack");
 		}
 		elsif ($rc == 124) {
@@ -225,7 +225,7 @@ sub check_download_clearlinux_org {
 
 			if (defined $proxy && $proxy eq '') {
 				log_warning("Successfully retrieved $url with proxy bypassed");
-				add_action("Check your proxy/noproxy config for $url");
+				add_action("proxy: Check your proxy/noproxy config for $url");
 			}
 		}
 		else {
@@ -276,7 +276,7 @@ sub check_plain_http_site {
 		else {
 			if (defined $proxy && $proxy eq '') {
 				log_warning("Successfully retrieved $url with proxy bypassed");
-				add_action("Check your proxy/noproxy config for $url");
+				add_action("proxy: Check your proxy/noproxy config for $url");
 			}
 		}
 	}
@@ -325,8 +325,8 @@ sub check_mirror {
 		log_error("FAILED: SSL certificate verification failed for ${test_url}");
 		warn "$response\n" if $response;
 		$failed++;
-		add_action("Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
-		add_action("Verify that you have the correct hostname set for your configured mirror");
+		add_action("SSL: Verify that you have the correct certificate trust chain installed ('man clrtrust') for your configured mirror");
+		add_action("swupd: Verify that you have the correct hostname set for your configured mirror");
 		log_warning("This could also indicate a MITM attack");
 	}
 	elsif ($rc == 124) {
@@ -337,13 +337,13 @@ sub check_mirror {
 		log_error("FAILED: request returned $rc");
 		warn "$response\n" if $response;
 		$failed++;
-		add_action("Verify that $version_url is a valid mirror URL (see 'swupd mirror --help')");
+		add_action("swupd: Verify that $version_url is a valid mirror URL (see 'swupd mirror --help')");
 	}
 	elsif ($response =~ /\r?\n\r?\n(\d+)$/s) {
 		log_pass("Got release $1");
 		if (defined $proxy && $proxy eq '') {
 			log_warning("Successfully retrieved $version_url with proxy bypassed");
-			add_action("Check your proxy/noproxy config for $version_url");
+			add_action("proxy: Check your proxy/noproxy config for $version_url");
 		}
 		if ($LATEST_RELEASE && $LATEST_RELEASE != $1) {
 			log_warning("Latest official release is $LATEST_RELEASE, but configured mirror has $1");
@@ -372,11 +372,11 @@ sub check_gateway {
 	}
 	elsif ($rc == 2) {
 		log_error("FAILED: NS lookup failed for $hostname");
-		add_action("check physical network connectivity, IP address settings (static or DHCP), etc.");
+		add_action("networking: check physical network connectivity, IP address settings (static or DHCP), etc.");
 	}
 	elsif ($rc == 1) {
 		log_warning("POSSIBLY FAILED: no response from $hostname to pings");
-		add_action("This may be acceptable, but you should still check physical network connectivity");
+		add_action("networking: This may be acceptable, but you should still check physical network connectivity");
 	}
 	else {
 		log_error("FAILED: failed for an unexpected reason");
@@ -392,8 +392,8 @@ sub check_dns {
 	my ($rc, $response) = run_cmd($command);
 	if ($rc == 9) {
 		log_error("FAILED: Configured DNS servers did not respond");
-		add_action("Check whether you have the correct DNS servers configured");
-		add_action("Check for network outages");
+		add_action("networking: Check whether you have the correct DNS servers configured");
+		add_action("networking: Check for network outages");
 	}
 	elsif (!$rc) {
 		# Right now we don't care about the result of the lookup, only whether
@@ -404,7 +404,7 @@ sub check_dns {
 		log_error("FAILED: DNS query failed (returned $rc)");
 		warn "$response\n" if $response;
 		$failures{dns}++;
-		add_action("Check your DNS configuration");
+		add_action("networking: Check your DNS configuration");
 	}
 }
 
@@ -436,10 +436,10 @@ sub check_for_captive_portal {
 					log_pass("No captive portal detected");
 				}
 				elsif ($status =~ /^3\d\d$/) {
-					add_action('Launch a web browser and check for a captive portal (redirected)');
+					add_action('hotspot: Launch a web browser and check for a captive portal (redirected)');
 				}
 				elsif ($status =~ /^2\d\d/) {
-					add_action('Launch a web browser and check for a captive portal (page replaced)');
+					add_action('hotspot: Launch a web browser and check for a captive portal (page replaced)');
 				}
 				else {
 					log_error("FAILED: request failed with HTTP status $status");
@@ -472,17 +472,17 @@ sub check_proxies_reachable {
 				my $fail = 0;
 				if (! -s "/run/pacrunner/wpad.dat") {
 					log_warning("PAC file not loaded by system");
-					add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+					add_action("proxy: Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 					$fail++;
 				}
 				if (`systemctl is-active pacdiscovery` !~ /^active$/) {
 					log_warning("not running: pacdiscovery");
 					if (`systemctl is-enabled pacdiscovery` =~ /^masked$/) {
 						log_warning("masked: pacdiscovery");
-						add_action("Unmask and restart pacdiscovery:\n\t(sudo systemctl unmask pacdiscovery; sudo systemctl restart pacdiscovery)");
+						add_action("proxy: Unmask and restart pacdiscovery:\n\t(sudo systemctl unmask pacdiscovery; sudo systemctl restart pacdiscovery)");
 					}
 					else {
-						add_action("Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
+						add_action("proxy: Restart pacdiscovery (sudo systemctl restart pacdiscovery)");
 					}
 					$fail++;
 				}
@@ -490,10 +490,10 @@ sub check_proxies_reachable {
 					log_warning("not running: pacrunner");
 					if (`systemctl is-enabled pacrunner` =~ /^masked$/) {
 						log_warning("masked: pacrunner");
-						add_action("Unmask and restart pacrunner\n\t(sudo systemctl unmask pacrunner; sudo systemctl restart pacrunner)");
+						add_action("proxy: Unmask and restart pacrunner\n\t(sudo systemctl unmask pacrunner; sudo systemctl restart pacrunner)");
 					}
 					else {
-						add_action("Restart pacrunner (sudo systemctl restart pacrunner)");
+						add_action("proxy: Restart pacrunner (sudo systemctl restart pacrunner)");
 					}
 					$fail++;
 				}
@@ -503,13 +503,13 @@ sub check_proxies_reachable {
 			}
 			else {
 				log_error("WPAD server returned something that doesn't look like a valid PAC (MIME type $ct)");
-				add_action("Check your WPAD/Autoproxy configuration with your network administrator");
+				add_action("proxy: Check your WPAD/Autoproxy configuration with your network administrator");
 			}
 		}
 		else {
 			log_error("WPAD server returned garbage. Probably not at all valid.");
 			warn "$response\n" if $response;
-			add_action("Check proxy configuration with your network administrator.");
+			add_action("proxy: Check proxy configuration with your network administrator.");
 		}
 	}
 
@@ -533,14 +533,14 @@ sub check_proxies_reachable {
 					$proxy =~ s/^(http)s(:)/$1$2/;
 					print "Trying $proxy_var=$proxy\n";
 					if(check_download_clearlinux_org($proxy)) {
-						add_action("Set \$$proxy_var to $proxy (replace https)");
+						add_action("proxy: Set \$$proxy_var to $proxy (replace https)");
 					}
 					else {
-						add_action("Check your \$$proxy_var setting");
+						add_action("proxy: Check your \$$proxy_var setting");
 					}
 				}
 				else {
-					add_action("Check whether \$$proxy_var=$proxy is correct");
+					add_action("proxy: Check whether \$$proxy_var=$proxy is correct");
 				}
 			}
 			if (!$failed) {
@@ -552,7 +552,7 @@ sub check_proxies_reachable {
 			if ($failures{$proto}) {
 				# No proxy server set for this protocol that failed our initial
 				# test
-				add_action("Set an appropriate \$$proxy_var");
+				add_action("proxy: Set an appropriate \$$proxy_var");
 			}
 		}
 	}
@@ -629,9 +629,9 @@ sub check_system_time {
 		if ($failed) {
 			log_error(@details);
 			log_error("This can break HTTPS certificate validation");
-			add_action("Set your system clock appropriately");
-			add_action("Consult `man systemd-timesyncd` for bare metal systems,");
-			add_action("or the appropriate local guest drivers for VM guests");
+			add_action("time: Set your system clock appropriately.");
+			add_action("time: Consult `man systemd-timesyncd` for bare metal systems.");
+			add_action("time: Check the appropriate local guest drivers for time synchronization on VM guests.");
 		}
 	}
 }
